@@ -21,7 +21,7 @@
 - name: Deploy etcd cluster
   hosts: etcd
   become: yes
-  serial: 1         # deploy one at a time for safe bootstrapping
+  serial: 0
   roles:
     - etcd
   tags: [etcd]
