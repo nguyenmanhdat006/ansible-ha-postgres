@@ -1,14 +1,7 @@
 ---
-- name: Add HAProxy APT repository (version 2.8)
-  apt_repository:
-    repo: "ppa:vbernat/haproxy-{{ haproxy_version }}"
-    state: present
-    update_cache: yes
-  when: ansible_distribution == 'Ubuntu'
-
-- name: Install HAProxy
+- name: Install HAProxy (Ubuntu 24 built-in repo)
   apt:
-    name: "haproxy={{ haproxy_version }}.*"
+    name: haproxy
     state: present
     update_cache: yes
 
@@ -18,8 +11,8 @@
     dest: /etc/haproxy/haproxy.cfg
     owner: root
     group: root
-    mode: '0644'
-    validate: '/usr/sbin/haproxy -c -f %s'
+    mode: "0644"
+    validate: "/usr/sbin/haproxy -c -f %s"
   notify: reload haproxy
 
 - name: Create HAProxy log directory
@@ -28,13 +21,13 @@
     state: directory
     owner: syslog
     group: adm
-    mode: '0755'
+    mode: "0755"
 
 - name: Configure rsyslog for HAProxy
   template:
     src: rsyslog-haproxy.conf.j2
     dest: /etc/rsyslog.d/49-haproxy.conf
-    mode: '0644'
+    mode: "0644"
   notify: restart rsyslog
 
 - name: Enable and start HAProxy
