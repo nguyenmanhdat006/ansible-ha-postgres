@@ -16,7 +16,7 @@
   gather_facts: yes
   roles:
     - common
-  tags: [common, always]
+  tags: [common]
 
 - name: Deploy etcd cluster
   hosts: etcd
