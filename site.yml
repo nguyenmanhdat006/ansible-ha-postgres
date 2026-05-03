@@ -1,0 +1,57 @@
+---
+# =============================================================================
+# site.yml - Full deployment of HA PostgreSQL cluster
+#
+# Topology:
+#   - 3 nodes: etcd + patroni + postgresql
+#   - 1 node (node1): also runs HAProxy
+#
+# Usage:
+#   ansible-playbook -i inventories/hosts.ini site.yml
+# =============================================================================
+
+- name: Apply common configuration to all nodes
+  hosts: postgres_ha
+  become: yes
+  gather_facts: yes
+  roles:
+    - common
+  tags: [common, always]
+
+- name: Deploy etcd cluster
+  hosts: etcd
+  become: yes
+  serial: 1         # deploy one at a time for safe bootstrapping
+  roles:
+    - etcd
+  tags: [etcd]
+
+- name: Deploy Patroni + PostgreSQL
+  hosts: patroni
+  become: yes
+  roles:
+    - patroni
+  tags: [patroni, postgresql]
+
+- name: Deploy HAProxy
+  hosts: haproxy
+  become: yes
+  roles:
+    - haproxy
+  tags: [haproxy]
+
+- name: Print final cluster info
+  hosts: haproxy
+  gather_facts: no
+  tasks:
+    - name: Final connection summary
+      debug:
+        msg:
+          - "╔══════════════════════════════════════════════════════════╗"
+          - "║         HA PostgreSQL Cluster - Connection Info          ║"
+          - "╠══════════════════════════════════════════════════════════╣"
+          - "║  Primary  (R/W)  → {{ ansible_host }}:5000               ║"
+          - "║  Replicas (R/O)  → {{ ansible_host }}:5001               ║"
+          - "║  HAProxy Stats   → http://{{ ansible_host }}:7000/stats  ║"
+          - "╚══════════════════════════════════════════════════════════╝"
+  tags: [always]

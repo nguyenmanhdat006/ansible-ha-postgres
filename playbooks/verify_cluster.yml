@@ -1,0 +1,88 @@
+---
+# =============================================================================
+# verify_cluster.yml - Check health of the HA PostgreSQL cluster
+# Usage: ansible-playbook -i inventories/hosts.ini playbooks/verify_cluster.yml
+# =============================================================================
+
+- name: Verify etcd cluster health
+  hosts: etcd[0]
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: etcd endpoint health
+      command: >
+        etcdctl endpoint health
+        --endpoints={% for host in groups['etcd'] %}http://{{ hostvars[host]['ansible_host'] }}:2379{% if not loop.last %},{% endif %}{% endfor %}
+
+      environment:
+        ETCDCTL_API: "3"
+      register: etcd_health
+
+    - name: etcd member list
+      command: >
+        etcdctl member list
+        --endpoints=http://{{ ansible_host }}:2379
+      environment:
+        ETCDCTL_API: "3"
+      register: etcd_members
+
+    - name: Show etcd status
+      debug:
+        msg: "{{ etcd_health.stdout_lines + etcd_members.stdout_lines }}"
+
+- name: Verify Patroni cluster status
+  hosts: patroni[0]
+  become: yes
+  become_user: postgres
+  gather_facts: no
+  tasks:
+    - name: patronictl list
+      command: patronictl -c /etc/patroni/patroni.yml list
+      register: patroni_list
+
+    - name: Show cluster topology
+      debug:
+        msg: "{{ patroni_list.stdout_lines }}"
+
+    - name: Check primary is accessible
+      uri:
+        url: "http://{{ hostvars[item]['ansible_host'] }}:8008/master"
+        method: GET
+        status_code: [200, 503]
+      loop: "{{ groups['patroni'] }}"
+      register: patroni_checks
+
+    - name: Show node roles
+      debug:
+        msg: >
+          {{ item.item }}: {{ 'PRIMARY' if item.status == 200 else 'REPLICA/DOWN' }}
+      loop: "{{ patroni_checks.results }}"
+
+- name: Verify HAProxy is routing correctly
+  hosts: haproxy
+  gather_facts: no
+  tasks:
+    - name: Check primary port (5000)
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 5000
+        timeout: 10
+
+    - name: Check replica port (5001)
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 5001
+        timeout: 10
+
+    - name: Fetch HAProxy stats via API
+      uri:
+        url: "http://{{ ansible_host }}:7000/stats;csv"
+        method: GET
+        url_username: "{{ haproxy_stats_user }}"
+        url_password: "{{ haproxy_stats_password }}"
+        return_content: yes
+      register: haproxy_stats
+
+    - name: Show HAProxy summary
+      debug:
+        msg: "HAProxy responding — primary:5000, replicas:5001, stats:7000 ✓"

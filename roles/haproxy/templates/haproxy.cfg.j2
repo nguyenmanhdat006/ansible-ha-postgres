@@ -1,0 +1,83 @@
+global
+    log /dev/log    local0
+    log /dev/log    local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+    # Performance tuning
+    maxconn 100000
+    spread-checks 3
+    tune.ssl.default-dh-param 2048
+    nbthread 4
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    option  dontlognull
+    option  tcp-check
+    option  redispatch
+    retries 3
+    timeout connect     5s
+    timeout client      30m
+    timeout server      30m
+    timeout check       5s
+    maxconn 5000
+
+# ─────────────────────────────────────────────────────────────────
+# STATS
+# ─────────────────────────────────────────────────────────────────
+listen stats
+    mode http
+    bind *:{{ haproxy_stats_port }}
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats show-legends
+    stats show-node
+    stats auth {{ haproxy_stats_user }}:{{ haproxy_stats_password }}
+    stats admin if TRUE
+
+# ─────────────────────────────────────────────────────────────────
+# PRIMARY — port {{ haproxy_primary_port }} (read-write, single primary)
+# HAProxy checks Patroni REST API: /master returns 200 only on primary
+# ─────────────────────────────────────────────────────────────────
+listen postgres_primary
+    bind *:{{ haproxy_primary_port }}
+    mode tcp
+    option tcp-check
+    balance first                # Always try first available (the primary)
+    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+
+{% for host in groups['patroni'] %}
+    server {{ host }} {{ hostvars[host]['ansible_host'] }}:5432 check port {{ haproxy_patroni_port }} check-ssl verify none
+{% endfor %}
+
+    # Override check: /master endpoint confirms primary
+    option httpchk GET /master HTTP/1.0\r\nHost:\ haproxy
+
+{% for host in groups['patroni'] %}
+    server {{ host }} {{ hostvars[host]['ansible_host'] }}:5432 check port {{ haproxy_patroni_port }}
+{% endfor %}
+
+# ─────────────────────────────────────────────────────────────────
+# REPLICAS — port {{ haproxy_replica_port }} (read-only, all replicas)
+# HAProxy checks Patroni REST API: /replica returns 200 on standbys
+# Falls back to primary if no replicas available
+# ─────────────────────────────────────────────────────────────────
+listen postgres_replicas
+    bind *:{{ haproxy_replica_port }}
+    mode tcp
+    option tcp-check
+    balance roundrobin
+    default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+
+    option httpchk GET /replica?lag=100MB HTTP/1.0\r\nHost:\ haproxy
+
+{% for host in groups['patroni'] %}
+    server {{ host }} {{ hostvars[host]['ansible_host'] }}:5432 check port {{ haproxy_patroni_port }}
+{% endfor %}

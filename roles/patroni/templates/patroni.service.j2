@@ -1,0 +1,33 @@
+[Unit]
+Description=Patroni - PostgreSQL HA Solution
+Documentation=https://patroni.readthedocs.io/
+After=syslog.target network.target etcd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+
+ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
+ExecReload=/bin/kill -s HUP $MAINPID
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+TimeoutStopSec=300
+
+KillMode=process
+KillSignal=SIGINT
+
+LimitNOFILE=65536
+LimitNPROC=65536
+
+Environment=PATRONI_LOGLEVEL=INFO
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=patroni
+
+[Install]
+WantedBy=multi-user.target

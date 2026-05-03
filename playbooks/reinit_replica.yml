@@ -1,0 +1,42 @@
+---
+# =============================================================================
+# reinit_replica.yml - Reinitialize a lagging or broken replica
+# Usage:
+#   ansible-playbook -i inventories/hosts.ini playbooks/reinit_replica.yml \
+#     -e target_node=node2
+# =============================================================================
+
+- name: Reinitialize replica node
+  hosts: patroni[0]
+  become: yes
+  become_user: postgres
+  gather_facts: no
+  vars:
+    target_node: "{{ target_node | default('node2') }}"
+  tasks:
+    - name: Show current state
+      command: patronictl -c /etc/patroni/patroni.yml list
+      register: current_state
+
+    - debug:
+        msg: "{{ current_state.stdout_lines }}"
+
+    - name: Reinitialize {{ target_node }}
+      command: >
+        patronictl -c /etc/patroni/patroni.yml reinit
+        {{ patroni_cluster_name }} {{ target_node }} --force
+      register: reinit_result
+
+    - debug:
+        msg: "{{ reinit_result.stdout_lines }}"
+
+    - name: Wait for replica to catch up
+      pause:
+        seconds: 30
+
+    - name: Show cluster state after reinit
+      command: patronictl -c /etc/patroni/patroni.yml list
+      register: final_state
+
+    - debug:
+        msg: "{{ final_state.stdout_lines }}"

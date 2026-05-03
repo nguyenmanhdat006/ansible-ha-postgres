@@ -1,0 +1,98 @@
+---
+# ============================================================
+# GLOBAL SETTINGS
+# ============================================================
+timezone: Asia/Ho_Chi_Minh
+ntp_server: pool.ntp.org
+
+# ============================================================
+# POSTGRESQL
+# ============================================================
+postgresql_version: "15"
+postgresql_data_dir: /var/lib/postgresql/{{ postgresql_version }}/main
+postgresql_bin_dir: /usr/lib/postgresql/{{ postgresql_version }}/bin
+postgresql_conf_dir: /etc/postgresql/{{ postgresql_version }}/main
+
+# Postgres superuser
+pg_superuser: postgres
+pg_superuser_password: "SuperSecurePassword123!"
+
+# Replication user
+pg_replication_user: replicator
+pg_replication_password: "ReplicatorPassword123!"
+
+# Application user (optional, created after cluster is up)
+pg_app_user: appuser
+pg_app_password: "AppPassword123!"
+pg_app_database: appdb
+
+# ============================================================
+# PATRONI
+# ============================================================
+patroni_version: "3.3.0"
+patroni_cluster_name: postgres-ha
+patroni_scope: "{{ patroni_cluster_name }}"
+
+patroni_restapi_port: 8008
+patroni_connect_address_port: 5432
+
+patroni_bootstrap_dcs:
+  ttl: 30
+  loop_wait: 10
+  retry_timeout: 10
+  maximum_lag_on_failover: 1048576
+  master_start_timeout: 300
+  synchronous_mode: false
+  synchronous_mode_strict: false
+  postgresql:
+    use_pg_rewind: true
+    use_slots: true
+    parameters:
+      max_connections: 200
+      shared_buffers: 256MB
+      effective_cache_size: 768MB
+      maintenance_work_mem: 64MB
+      checkpoint_completion_target: 0.9
+      wal_buffers: 16MB
+      default_statistics_target: 100
+      random_page_cost: 1.1
+      effective_io_concurrency: 200
+      min_wal_size: 1GB
+      max_wal_size: 4GB
+      max_worker_processes: 4
+      max_parallel_workers_per_gather: 2
+      max_parallel_workers: 4
+      wal_level: replica
+      hot_standby: "on"
+      wal_log_hints: "on"
+      max_wal_senders: 10
+      max_replication_slots: 10
+      hot_standby_feedback: "on"
+
+# ============================================================
+# ETCD
+# ============================================================
+etcd_version: "3.5.12"
+etcd_data_dir: /var/lib/etcd
+etcd_client_port: 2379
+etcd_peer_port: 2380
+etcd_cluster_token: etcd-postgres-ha-cluster
+
+# ============================================================
+# HAPROXY
+# ============================================================
+haproxy_version: "2.8"
+haproxy_stats_port: 7000
+haproxy_stats_user: admin
+haproxy_stats_password: "HaproxyAdmin123!"
+
+haproxy_primary_port: 5000 # read-write (primary only)
+haproxy_replica_port: 5001 # read-only (replicas)
+haproxy_patroni_port: "{{ patroni_restapi_port }}"
+
+# ============================================================
+# KEEPALIVED
+# ============================================================
+keepalived_enabled: false
+keepalived_vip: 192.168.253.100
+keepalived_interface: eth0

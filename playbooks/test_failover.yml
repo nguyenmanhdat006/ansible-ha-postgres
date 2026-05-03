@@ -1,0 +1,42 @@
+---
+# =============================================================================
+# test_failover.yml - Trigger and verify a manual failover
+# Usage: ansible-playbook -i inventories/hosts.ini playbooks/test_failover.yml
+# =============================================================================
+
+- name: Trigger manual failover via patronictl
+  hosts: patroni[0]
+  become: yes
+  become_user: postgres
+  gather_facts: no
+  tasks:
+    - name: Show current cluster state
+      command: patronictl -c /etc/patroni/patroni.yml list
+      register: before_state
+
+    - name: Before failover state
+      debug:
+        msg: "{{ before_state.stdout_lines }}"
+
+    - name: Trigger failover (switchover to next candidate)
+      command: >
+        patronictl -c /etc/patroni/patroni.yml switchover
+        {{ patroni_cluster_name }}
+        --force
+      register: failover_result
+
+    - name: Show failover output
+      debug:
+        msg: "{{ failover_result.stdout_lines }}"
+
+    - name: Wait 15s for new primary to stabilize
+      pause:
+        seconds: 15
+
+    - name: Show cluster state after failover
+      command: patronictl -c /etc/patroni/patroni.yml list
+      register: after_state
+
+    - name: After failover state
+      debug:
+        msg: "{{ after_state.stdout_lines }}"

@@ -1,0 +1,77 @@
+---
+- name: Add HAProxy APT repository (version 2.8)
+  apt_repository:
+    repo: "ppa:vbernat/haproxy-{{ haproxy_version }}"
+    state: present
+    update_cache: yes
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Install HAProxy
+  apt:
+    name: "haproxy={{ haproxy_version }}.*"
+    state: present
+    update_cache: yes
+
+- name: Deploy HAProxy configuration
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: '0644'
+    validate: '/usr/sbin/haproxy -c -f %s'
+  notify: reload haproxy
+
+- name: Create HAProxy log directory
+  file:
+    path: /var/log/haproxy
+    state: directory
+    owner: syslog
+    group: adm
+    mode: '0755'
+
+- name: Configure rsyslog for HAProxy
+  template:
+    src: rsyslog-haproxy.conf.j2
+    dest: /etc/rsyslog.d/49-haproxy.conf
+    mode: '0644'
+  notify: restart rsyslog
+
+- name: Enable and start HAProxy
+  systemd:
+    name: haproxy
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Wait for HAProxy stats page to be available
+  uri:
+    url: "http://{{ ansible_host }}:{{ haproxy_stats_port }}/stats"
+    method: GET
+    url_username: "{{ haproxy_stats_user }}"
+    url_password: "{{ haproxy_stats_password }}"
+    status_code: 200
+  register: haproxy_stats
+  until: haproxy_stats.status == 200
+  retries: 10
+  delay: 5
+
+- name: Verify HAProxy primary port is listening
+  wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ haproxy_primary_port }}"
+    timeout: 30
+
+- name: Verify HAProxy replica port is listening
+  wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ haproxy_replica_port }}"
+    timeout: 30
+
+- name: Show HAProxy status summary
+  debug:
+    msg:
+      - "HAProxy is running"
+      - "Primary (read-write): {{ ansible_host }}:{{ haproxy_primary_port }}"
+      - "Replica  (read-only): {{ ansible_host }}:{{ haproxy_replica_port }}"
+      - "Stats page: http://{{ ansible_host }}:{{ haproxy_stats_port }}/stats"

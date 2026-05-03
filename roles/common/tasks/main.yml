@@ -1,0 +1,111 @@
+---
+- name: Set hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Update /etc/hosts with cluster nodes
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
+    state: present
+  loop: "{{ groups['postgres_ha'] }}"
+
+- name: Set timezone
+  timezone:
+    name: "{{ timezone }}"
+
+- name: Install common packages
+  apt:
+    name:
+      - curl
+      - wget
+      - gnupg2
+      - apt-transport-https
+      - ca-certificates
+      - lsb-release
+      - software-properties-common
+      - python3-pip
+      - python3-psycopg2
+      - net-tools
+      - vim
+      - htop
+      - jq
+      - chrony
+    state: present
+    update_cache: yes
+  retries: 3
+  delay: 5
+
+- name: Configure chrony NTP
+  template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    mode: '0644'
+  notify: restart chrony
+
+- name: Enable and start chrony
+  service:
+    name: chronyd
+    state: started
+    enabled: yes
+
+- name: Disable swap
+  command: swapoff -a
+  changed_when: false
+
+- name: Remove swap from fstab
+  lineinfile:
+    path: /etc/fstab
+    regexp: '.*swap.*'
+    state: absent
+
+- name: Set kernel parameters for PostgreSQL
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop:
+    - { name: vm.swappiness, value: "1" }
+    - { name: vm.overcommit_memory, value: "2" }
+    - { name: vm.dirty_ratio, value: "10" }
+    - { name: vm.dirty_background_ratio, value: "5" }
+    - { name: fs.file-max, value: "65536" }
+    - { name: net.core.somaxconn, value: "65535" }
+    - { name: net.ipv4.tcp_keepalive_time, value: "300" }
+    - { name: net.ipv4.tcp_keepalive_intvl, value: "30" }
+    - { name: net.ipv4.tcp_keepalive_probes, value: "3" }
+
+- name: Configure ulimits for postgres user
+  pam_limits:
+    domain: postgres
+    limit_type: "{{ item.type }}"
+    limit_item: "{{ item.item }}"
+    value: "{{ item.value }}"
+  loop:
+    - { type: soft, item: nofile, value: "65536" }
+    - { type: hard, item: nofile, value: "65536" }
+    - { type: soft, item: nproc,  value: "65536" }
+    - { type: hard, item: nproc,  value: "65536" }
+
+- name: Configure firewall rules (UFW)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "22"
+    - "5432"   # PostgreSQL
+    - "5000"   # HAProxy primary
+    - "5001"   # HAProxy replica
+    - "7000"   # HAProxy stats
+    - "8008"   # Patroni REST API
+    - "2379"   # etcd client
+    - "2380"   # etcd peer
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+  ignore_errors: yes

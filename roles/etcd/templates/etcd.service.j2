@@ -1,0 +1,29 @@
+[Unit]
+Description=etcd - A highly-available key-value store
+Documentation=https://etcd.io/docs/
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=etcd
+Group=etcd
+EnvironmentFile=/etc/etcd/etcd.conf
+ExecStart=/usr/local/bin/etcd
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+LimitNPROC=65536
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=etcd
+
+[Install]
+WantedBy=multi-user.target

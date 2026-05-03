@@ -1,0 +1,31 @@
+ETCD_NAME={{ inventory_hostname }}
+ETCD_DATA_DIR={{ etcd_data_dir }}
+
+# Client communication
+ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:{{ etcd_client_port }}
+ETCD_ADVERTISE_CLIENT_URLS=http://{{ ansible_host }}:{{ etcd_client_port }}
+
+# Peer communication
+ETCD_LISTEN_PEER_URLS=http://0.0.0.0:{{ etcd_peer_port }}
+ETCD_INITIAL_ADVERTISE_PEER_URLS=http://{{ ansible_host }}:{{ etcd_peer_port }}
+
+# Cluster bootstrap
+ETCD_INITIAL_CLUSTER_TOKEN={{ etcd_cluster_token }}
+ETCD_INITIAL_CLUSTER_STATE=new
+ETCD_INITIAL_CLUSTER={% for host in groups['etcd'] %}{{ host }}=http://{{ hostvars[host]['ansible_host'] }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}
+
+
+# Performance
+ETCD_HEARTBEAT_INTERVAL=500
+ETCD_ELECTION_TIMEOUT=5000
+ETCD_SNAPSHOT_COUNT=5000
+ETCD_MAX_SNAPSHOTS=5
+ETCD_MAX_WALS=5
+
+# Logging
+ETCD_LOG_LEVEL=info
+ETCD_LOG_OUTPUTS=stderr
+
+# Auto compaction
+ETCD_AUTO_COMPACTION_RETENTION=1
+ETCD_AUTO_COMPACTION_MODE=periodic
