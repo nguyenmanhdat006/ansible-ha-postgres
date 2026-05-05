@@ -3,7 +3,6 @@
   apt:
     name: haproxy
     state: present
-    update_cache: yes
 
 - name: Deploy HAProxy configuration
   template:
