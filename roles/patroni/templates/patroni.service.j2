@@ -9,7 +9,7 @@ Type=simple
 User=postgres
 Group=postgres
 
-ExecStart=/opt/patroni-venv/bin/patroni /etc/patroni/patroni.yml
+ExecStart=/usr/bin/patroni /etc/patroni/patroni.yml
 ExecReload=/bin/kill -s HUP $MAINPID
 
 Restart=on-failure
