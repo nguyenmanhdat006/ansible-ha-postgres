@@ -1,29 +1,48 @@
 ---
-# ─── Install PostgreSQL ────────────────────────────────────────────────────────
+# ─── Add Percona Repository ───────────────────────────────────────────────────
 
-- name: Add PostgreSQL APT key
-  apt_key:
-    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
-    state: present
-
-- name: Add PostgreSQL APT repository
-  apt_repository:
-    repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
-    state: present
-    filename: pgdg
-
-- name: Install PostgreSQL {{ postgresql_version }}
+- name: Install gnupg2 and curl
   apt:
     name:
-      - "postgresql-{{ postgresql_version }}"
-      - "postgresql-client-{{ postgresql_version }}"
-      - "postgresql-contrib-{{ postgresql_version }}"
+      - gnupg2
+      - curl
+      - lsb-release
     state: present
     update_cache: yes
 
+- name: Download Percona release package
+  get_url:
+    url: "https://repo.percona.com/apt/percona-release_latest.generic_all.deb"
+    dest: /tmp/percona-release.deb
+    mode: "0644"
+
+- name: Install Percona release package
+  apt:
+    deb: /tmp/percona-release.deb
+    state: present
+
+- name: Enable Percona Distribution for PostgreSQL 15
+  command: percona-release setup ppg-15
+  changed_when: true
+
+- name: Update apt cache after Percona repo
+  apt:
+    update_cache: yes
+
+# ─── Install PostgreSQL + Patroni via Percona ─────────────────────────────────
+
+- name: Install Percona PostgreSQL 15 + Patroni
+  apt:
+    name:
+      - percona-postgresql-15
+      - percona-postgresql-client-15
+      - percona-postgresql-contrib-15
+      - percona-patroni
+    state: present
+
 - name: Stop and disable default PostgreSQL service (Patroni manages it)
   systemd:
-    name: "postgresql@{{ postgresql_version }}-main"
+    name: "postgresql@15-main"
     state: stopped
     enabled: no
   ignore_errors: yes
@@ -34,40 +53,6 @@
     state: stopped
     enabled: no
   ignore_errors: yes
-
-# ─── Install Patroni (Ubuntu 24 - dùng virtualenv) ───────────────────────────
-
-- name: Install python3-venv and python3-full
-  apt:
-    name:
-      - python3-venv
-      - python3-full
-      - python3-pip
-    state: present
-
-- name: Create virtualenv for Patroni at /opt/patroni-venv
-  command: python3 -m venv /opt/patroni-venv
-  args:
-    creates: /opt/patroni-venv/bin/activate
-
-- name: Install Patroni and dependencies inside virtualenv
-  pip:
-    name:
-      - "patroni[etcd]=={{ patroni_version }}"
-      - psycopg2-binary
-      - python-etcd
-    state: present
-    virtualenv: /opt/patroni-venv
-
-- name: Symlink patroni binaries to /usr/local/bin
-  file:
-    src: "/opt/patroni-venv/bin/{{ item }}"
-    dest: "/usr/local/bin/{{ item }}"
-    state: link
-    force: yes
-  loop:
-    - patroni
-    - patronictl
 
 # ─── Configure Patroni ────────────────────────────────────────────────────────
 
@@ -87,7 +72,7 @@
     group: postgres
     mode: "0750"
 
-- name: Ensure PostgreSQL data directory exists and is owned by postgres
+- name: Ensure PostgreSQL data directory exists
   file:
     path: "{{ postgresql_data_dir }}"
     state: directory
@@ -96,7 +81,21 @@
     mode: "0700"
     recurse: yes
 
-- name: Deploy Patroni configuration file
+- name: Fix /var/run/postgresql permission
+  file:
+    path: /var/run/postgresql
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0775"
+
+- name: Persist /var/run/postgresql via tmpfiles.d
+  copy:
+    content: "d /var/run/postgresql 0775 postgres postgres -\n"
+    dest: /etc/tmpfiles.d/postgresql.conf
+    mode: "0644"
+
+- name: Deploy Patroni configuration
   template:
     src: patroni.yml.j2
     dest: /etc/patroni/patroni.yml
@@ -156,7 +155,7 @@
     msg: "{{ patroni_status.stdout_lines }}"
   run_once: true
 
-# ─── Post-bootstrap: Create app user/db ───────────────────────────────────────
+# ─── Post-bootstrap ───────────────────────────────────────────────────────────
 
 - name: Create application database
   postgresql_db:
