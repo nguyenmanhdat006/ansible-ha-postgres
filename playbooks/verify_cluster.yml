@@ -61,6 +61,8 @@
 - name: Verify HAProxy is routing correctly
   hosts: haproxy
   gather_facts: no
+  vars_files:
+    - ../group_vars/all.yml
   tasks:
     - name: Check primary port (5000)
       wait_for:
