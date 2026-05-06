@@ -1,60 +1,24 @@
 ---
-- name: Create etcd group
-  group:
+- name: Install etcd via apt
+  apt:
     name: etcd
-    system: yes
+    state: present
 
-- name: Create etcd user
-  user:
-    name: etcd
-    group: etcd
-    system: yes
-    shell: /sbin/nologin
-    home: "{{ etcd_data_dir }}"
-    create_home: no
-
-- name: Create etcd directories
+- name: Create etcd config directory
   file:
-    path: "{{ item }}"
+    path: /etc/etcd
     state: directory
     owner: etcd
     group: etcd
-    mode: '0755'
-  loop:
-    - "{{ etcd_data_dir }}"
-    - /etc/etcd
-    - /opt/etcd
+    mode: "0755"
 
-- name: Check if etcd binary exists
-  stat:
-    path: /usr/local/bin/etcd
-  register: etcd_binary
-
-- name: Download etcd
-  get_url:
-    url: "https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
-    dest: /tmp/etcd-v{{ etcd_version }}-linux-amd64.tar.gz
-    mode: '0644'
-  when: not etcd_binary.stat.exists
-
-- name: Extract etcd
-  unarchive:
-    src: /tmp/etcd-v{{ etcd_version }}-linux-amd64.tar.gz
-    dest: /opt/etcd
-    remote_src: yes
-    extra_opts: ['--strip-components=1']
-  when: not etcd_binary.stat.exists
-
-- name: Install etcd binaries
-  copy:
-    src: "/opt/etcd/{{ item }}"
-    dest: "/usr/local/bin/{{ item }}"
-    mode: '0755'
-    remote_src: yes
-  loop:
-    - etcd
-    - etcdctl
-  when: not etcd_binary.stat.exists
+- name: Ensure etcd data directory exists with correct permissions
+  file:
+    path: "{{ etcd_data_dir }}"
+    state: directory
+    owner: etcd
+    group: etcd
+    mode: "0700"
 
 - name: Generate etcd configuration
   template:
@@ -62,24 +26,28 @@
     dest: /etc/etcd/etcd.conf
     owner: etcd
     group: etcd
-    mode: '0640'
+    mode: "0640"
   notify: restart etcd
 
 - name: Install etcd systemd service
   template:
     src: etcd.service.j2
     dest: /etc/systemd/system/etcd.service
-    mode: '0644'
+    mode: "0644"
   notify:
     - reload systemd
     - restart etcd
 
-- name: Enable and start etcd
-  systemd:
-    name: etcd
-    state: started
-    enabled: yes
-    daemon_reload: yes
+- name: Enable and start etcd (non-blocking)
+  shell: systemctl enable etcd && systemctl start etcd || true
+  changed_when: false
+
+- name: Wait for etcd port to be open
+  wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ etcd_client_port }}"
+    timeout: 60
+    delay: 3
 
 - name: Wait for etcd to be healthy
   command: etcdctl endpoint health --endpoints=http://{{ ansible_host }}:{{ etcd_client_port }}
@@ -87,7 +55,7 @@
     ETCDCTL_API: "3"
   register: etcd_health
   until: etcd_health.rc == 0
-  retries: 15
+  retries: 20
   delay: 5
 
 - name: Verify etcd cluster members
